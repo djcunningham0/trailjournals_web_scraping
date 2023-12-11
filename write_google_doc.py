@@ -9,6 +9,12 @@ from trailjournals_scraping import User
 from dotenv import load_dotenv
 load_dotenv()
 
+import logging
+logging.basicConfig()
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.getLevelName(os.getenv("LOGLEVEL", "WARNING")))
+logging.getLogger("trailjournals_scraping").setLevel(logging.getLevelName(os.getenv("LOGLEVEL", "WARNING")))
+
 DOCUMENT_ID = os.getenv("GOOGLE_DOC_ID")
 TRAILJOURNALS_USERNAME = os.getenv("TRAILJOURNALS_USERNAME")
 
@@ -225,8 +231,7 @@ creds_file = os.getenv("GOOGLE_DOC_CREDENTIALS_FILE")
 credentials = service_account.Credentials.from_service_account_file(creds_file)
 
 with build("docs", "v1", credentials=credentials) as service:
-    # Retrieve the documents contents from the Docs service.
     document = service.documents().get(documentId=DOCUMENT_ID).execute()
-    print(f"The title of the document is: {document.get('title')}")
+    logger.info(f"Loaded document: {document.get('title')}")
+    logger.info(f"Processing {len(request_list)} requests")
     result = service.documents().batchUpdate(documentId=DOCUMENT_ID, body={'requests': request_list}).execute()
-    document = service.documents().get(documentId=DOCUMENT_ID).execute()

@@ -4,15 +4,13 @@ import json
 import string
 from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Tuple
+from typing import List
 
 from bs4 import BeautifulSoup
 import requests
 
 import logging
-logging.basicConfig()
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -85,7 +83,9 @@ class Entry:
         text = [x.text for x in entry.find_all("p")]
         text = [x.replace("\xa0", "") for x in text]  # replace double spaces
         text = [x.replace("\n", " ").strip() for x in text]  # remove in middle of paragraphs
-        return "\n\n".join(text).strip()  # combine lists into a single string
+        text = "\n\n".join(text).strip()  # combine lists into a single string
+        text = re.sub(r"\n{3,}", "\n\n", text)  # remove extra newlines
+        return text
 
     def _get_images(self) -> List["Image"]:
         entry = self._soup.find("div", {"class": "entry"})
