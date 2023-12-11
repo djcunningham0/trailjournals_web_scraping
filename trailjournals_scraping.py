@@ -4,7 +4,7 @@ import json
 import string
 from dataclasses import dataclass
 from datetime import datetime
-from typing import List
+from typing import List, Tuple
 
 from bs4 import BeautifulSoup
 import requests
@@ -30,7 +30,7 @@ class Entry:
         self.date = self._get_date()
         self.metadata = self._get_metadata()
         self.text = self._get_text()
-        self.image_urls = self._get_image_urls()
+        self.images = self._get_images()
 
     def _get_title(self) -> str:
         return self._soup.find("h2", {"class": "entry-title"}).text.strip()
@@ -87,19 +87,29 @@ class Entry:
         text = [x.replace("\n", " ").strip() for x in text]  # remove in middle of paragraphs
         return "\n\n".join(text).strip()  # combine lists into a single string
 
-    def _get_image_urls(self) -> List[str]:
+    def _get_images(self) -> List["Image"]:
         entry = self._soup.find("div", {"class": "entry"})
         image_urls = [x["src"] for x in entry.find_all("img")]
         logger.debug(f"found {len(image_urls)} images")
-        return image_urls
+
+        # first (featured) image caption has a <font> tag with size="-1"
+        captions = [entry.find("font", {"size": "-1"}).text.strip() or ""]
+
+        # subsequent image captions have <figcaption> tags
+        captions += [x.text.strip() for x in entry.find_all("figcaption")]
+
+        # TODO: does this handle images w/o captions? do a better job of accounting for this
+        #  - maybe create Image class?
+
+        return [Image(url, caption) for url, caption in zip(image_urls, captions)]
 
     def to_dict(self) -> dict:
         return {
             "title": self.title,
             "date": self.date,
             "text": self.text,
-            "image_urls": self.image_urls,
-            "image_names": [x.split("/")[-1] for x in self.image_urls],
+            "image_urls": self.images,
+            "image_names": [x.split("/")[-1] for x in self.images],
         }
 
     def to_text(self) -> str:
@@ -138,14 +148,24 @@ class Entry:
 
     def download_images(self, directory: str):
         os.makedirs(directory, exist_ok=True)
-        for i, url in enumerate(self.image_urls):
-            logger.debug(f"downloading image {i} of {len(self.image_urls)}")
+        for i, image in enumerate(self.images):
+            url = image.url
+            logger.debug(f"downloading image {i} of {len(self.images)}")
             image_name = url.split("/")[-1]
             path = os.path.join(directory, image_name)
             download_image(url, path)
 
     def __repr__(self):
         return f"Entry(title={self.title}, date={self.date})"
+
+
+@dataclass
+class Image:
+    url: str
+    caption: str = None
+
+    def __post_init__(self):
+        self.url = format_trailjournals_url(self.url)
 
 
 @dataclass
