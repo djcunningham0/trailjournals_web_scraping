@@ -16,9 +16,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-USERNAME = os.getenv("TRAILJOURNALS_USERNAME")
-
-
 class Entry:
     def __init__(self, url: str, journal: "Journal" = None):
         self.journal = journal
@@ -88,20 +85,8 @@ class Entry:
         return text
 
     def _get_images(self) -> List["Image"]:
-        entry = self._soup.find("div", {"class": "entry"})
-        image_urls = [x["src"] for x in entry.find_all("img")]
-        logger.debug(f"found {len(image_urls)} images")
-
-        # first (featured) image caption has a <font> tag with size="-1"
-        captions = [entry.find("font", {"size": "-1"}).text.strip() or ""]
-
-        # subsequent image captions have <figcaption> tags
-        captions += [x.text.strip() for x in entry.find_all("figcaption")]
-
-        # TODO: does this handle images w/o captions? do a better job of accounting for this
-        #  - maybe create Image class?
-
-        return [Image(url, caption) for url, caption in zip(image_urls, captions)]
+        entry_body = self._soup.find("div", {"class": "entry"})
+        return get_images_from_soup(entry_body)
 
     def to_dict(self) -> dict:
         return {
@@ -293,6 +278,38 @@ class User:
 
     def __repr__(self):
         return f"User(username={self.username}, n_journals={self.n_journals}, total_entries={self.n_entries})"
+
+
+def get_images_from_soup(entry_body: BeautifulSoup) -> List[Image]:
+    """
+    Extract images and captions from a post. Return a list of Image objects.
+
+    Note: this function is outside the Entry class to simplify unit testing.
+    """
+    image_urls = []
+    captions = []
+    for tag in entry_body.find_all(["img", "figcaption"]):
+        if tag.name == "img":
+            table = tag.find_parent("table")
+            if table:
+                # first (featured) image is in a table and the caption is in a <font> tag in the table
+                image_urls.append(table.find("img")["src"])
+                caption = table.find("font")
+                caption = caption.text.strip() if caption else None
+                captions.append(caption)
+            else:
+                # subsequent images have <img> tags and may or may not be followed by a <figcaption> tag
+                image_urls.append(tag["src"])
+        else:
+            # we have tag.name == "figcaption"
+            caption = tag.text.strip()
+            while len(captions) < len(image_urls):
+                # if there is no caption, add an empty string
+                captions.append(None)
+            captions[-1] = caption
+
+    logger.debug(f"found {len(image_urls)} images")
+    return [Image(url, caption) for url, caption in zip(image_urls, captions)]
 
 
 def get_soup(url: str, parser: str = "html.parser", **requests_kwargs) -> BeautifulSoup:
