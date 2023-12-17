@@ -4,7 +4,7 @@ from typing import List
 from googleapiclient.discovery import build
 from google.oauth2 import service_account
 
-from trailjournals_scraping import User
+from trailjournals_scraping import User, Entry, Image
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -19,6 +19,9 @@ DOCUMENT_ID = os.getenv("GOOGLE_DOC_ID")
 TRAILJOURNALS_USERNAME = os.getenv("TRAILJOURNALS_USERNAME")
 
 user = User(TRAILJOURNALS_USERNAME)
+
+DEFAULT_IMAGE_HEIGHT = 360
+DEFAULT_IMAGE_WIDTH = 360
 
 SECTION_BREAK = {"insertSectionBreak": {"location": {"index": 1}, "sectionType": "NEXT_PAGE"}}
 PAGE_BREAK = {"insertSectionBreak": {"location": {"index": 1}, "sectionType": "NEXT_PAGE"}}
@@ -84,10 +87,21 @@ def format_paragraph_alignment(alignment: str, start: int = 1, end: int = 1) -> 
     }
 
 
+def format_text_italic(start: int = 1, end: int = 1) -> dict:
+    return {
+        "updateTextStyle": {
+            "fields": "italic",
+            "range": {"startIndex": start, "endIndex": end},
+            "textStyle": {"italic": True}
+        }
+    }
+
+
 def insert_text_with_style(
         text: str,
         named_style: str = "NORMAL_TEXT",
         alignment: str = "START",  # "START", "CENTER", "END", "JUSTIFIED"
+        italic: bool = False,
         start: int = 1,
 ) -> List[dict]:
     """
@@ -102,6 +116,8 @@ def insert_text_with_style(
     out = []
     if alignment:
         out.append(format_paragraph_alignment(alignment, start=start, end=start + len(text)))
+    if italic:
+        out.append(format_text_italic(start=start, end=start + len(text)))
     if named_style:
         out.append(format_named_style_type(named_style, start=start, end=start + len(text)))
     out.append({"insertText": {"location": {"index": start}, "text": text}})
@@ -137,6 +153,110 @@ def insert_hr(
     ]
 
 
+def process_entry_metadata(entry: Entry) -> List[dict]:
+    return [
+        # not really sure how the index values are supposed to work with tables, but it
+        # seems you add 2 to go to the next column, add 5 to go to the next row
+        *insert_text_with_style(
+            text=f"Start: {entry.metadata.start}",
+            named_style="SUBTITLE",
+            alignment="START",
+            start=5
+        ),
+        *insert_text_with_style(
+            text=f"Miles: {entry.metadata.miles}",
+            named_style="SUBTITLE",
+            alignment="END",
+            start=7
+        ),
+        *insert_text_with_style(
+            text=f"Destination: {entry.metadata.destination}",
+            named_style="SUBTITLE",
+            alignment="START",
+            start=10
+        ),
+        *insert_text_with_style(
+            text=f"Trip miles: {entry.metadata.trip_miles}",
+            named_style="SUBTITLE",
+            alignment="END",
+            start=12
+        ),
+        {
+            "updateTableCellStyle": {
+                "fields": "borderBottom,borderLeft,borderRight,borderTop,"
+                          "paddingBottom,paddingLeft,paddingRight,paddingTop,"
+                          "contentAlignment",
+                "tableStartLocation": {
+                    "index": 2,
+                },
+                "tableCellStyle": {
+                    **apply_border(),
+                    **apply_padding(),
+                    "contentAlignment": "MIDDLE",
+                },
+            },
+        },
+        {
+            "updateTableColumnProperties": {
+                "tableStartLocation": {"index": 2},
+                "columnIndices": [1],
+                "tableColumnProperties": {
+                    "widthType": "FIXED_WIDTH",
+                    "width": {
+                        "magnitude": 110,
+                        "unit": "PT"
+                    }
+                },
+                "fields": "*"
+            },
+        },
+        {
+            "updateTableColumnProperties": {
+                "tableStartLocation": {"index": 2},
+                "columnIndices": [0],
+                "tableColumnProperties": {
+                    "widthType": "FIXED_WIDTH",
+                    "width": {
+                        "magnitude": 280,
+                        "unit": "PT"
+                    }
+                },
+                "fields": "*"
+            },
+        },
+        {"insertTable": {"location": {"index": 1}, "columns": 2, "rows": 2}},
+        format_paragraph_alignment("CENTER", start=1, end=1),
+        *insert_hr(top_or_bottom="top"),
+    ]
+
+
+def insert_image(
+        image: Image,
+        height: int = DEFAULT_IMAGE_HEIGHT,
+        width: int = DEFAULT_IMAGE_WIDTH,
+) -> List[dict]:
+    out = [
+        format_paragraph_alignment("CENTER"),
+        {
+            "insertInlineImage": {
+                "location": {"index": 1},
+                "uri": image.url,
+                "objectSize": {
+                    "height": {"magnitude": height, "unit": "PT"},
+                    "width": {"magnitude": width, "unit": "PT"},
+                },
+            }
+        },
+    ]
+    if image.caption:
+        out += [
+            *insert_text_with_style("\n"),
+            *insert_text_with_style(image.caption, named_style="SUBTITLE", alignment="CENTER", italic=True),
+        ]
+    out += insert_text_with_style("\n\n")
+    return out
+
+
 request_list = []
 # request_list += [
 #     *insert_text_with_style(f"Trailjournals for {user.username}", "TITLE"),
@@ -157,72 +277,23 @@ for i, journal in enumerate(user.journals):
         ]
         has_metadata = any([entry.metadata.start, entry.metadata.destination, entry.metadata.miles, entry.metadata.trip_miles])
         if has_metadata:
-            # not really sure how the index values are supposed to work, but it seems you add 2 to go to the next
-            # column, add 5 to go to the next row
-            request_list += insert_text_with_style(f"Start: {entry.metadata.start}", named_style="SUBTITLE", alignment="START", start=5)
-            request_list += insert_text_with_style(f"Miles: {entry.metadata.miles}", named_style="SUBTITLE", alignment="END", start=7)
-            request_list += insert_text_with_style(f"Destination: {entry.metadata.destination}", named_style="SUBTITLE", alignment="START", start=10)
-            request_list += insert_text_with_style(f"Trip miles: {entry.metadata.trip_miles}", named_style="SUBTITLE", alignment="END", start=12)
-
-            request_list += [
-                {
-                    "updateTableCellStyle": {
-                        "fields": "borderBottom,borderLeft,borderRight,borderTop,"
-                                  "paddingBottom,paddingLeft,paddingRight,paddingTop,"
-                                  "contentAlignment",
-                        "tableStartLocation": {
-                            "index": 2,
-                        },
-                        "tableCellStyle": {
-                            **apply_border(),
-                            **apply_padding(),
-                            "contentAlignment": "MIDDLE",
-                        },
-                    },
-                },
-                {
-                    'updateTableColumnProperties': {
-                        'tableStartLocation': {'index': 2},
-                        'columnIndices': [1],
-                        'tableColumnProperties': {
-                            'widthType': 'FIXED_WIDTH',
-                            'width': {
-                                'magnitude': 110,
-                                'unit': 'PT'
-                            }
-                        },
-                        'fields': '*'
-                    },
-                },
-                {
-                    'updateTableColumnProperties': {
-                        'tableStartLocation': {'index': 2},
-                        'columnIndices': [0],
-                        'tableColumnProperties': {
-                            'widthType': 'FIXED_WIDTH',
-                            'width': {
-                                'magnitude': 280,
-                                'unit': 'PT'
-                            }
-                        },
-                        'fields': '*'
-                    },
-                },
-                {"insertTable": {"location": {"index": 1}, "columns": 2, "rows": 2}},
-                format_paragraph_alignment("CENTER", start=1, end=1),
-                *insert_hr(top_or_bottom="top"),
-            ]
-
+            request_list += process_entry_metadata(entry)
         else:
-            request_list += [*insert_text_with_style("\n")]
+            request_list += insert_text_with_style("\n")
 
-        request_list += [*insert_text_with_style(entry.text)]
+        # put the first image before the content
+        if entry.images:
+            request_list += insert_image(entry.images[0])
+        else:
+            request_list += insert_text_with_style("\n")
 
-        for image in entry.images:
-            request_list += [
-                *insert_text_with_style("\n"),
-                {"insertInlineImage": {"location": {"index": 1}, "uri": image.url}},
-            ]
+        # entry content
+        request_list += [*insert_text_with_style(entry.text, alignment="JUSTIFIED")]
+
+        # put the rest of the images after the content
+        for image in entry.images[1:]:
+            request_list += insert_text_with_style("\n\n")
+            request_list += insert_image(image)
 
 # following the best practices of the API, i.e., writing backwards so the formatting works correctly
 request_list = request_list[::-1]
@@ -234,4 +305,4 @@ with build("docs", "v1", credentials=credentials) as service:
     document = service.documents().get(documentId=DOCUMENT_ID).execute()
     logger.info(f"Loaded document: {document.get('title')}")
     logger.info(f"Processing {len(request_list)} requests")
-    result = service.documents().batchUpdate(documentId=DOCUMENT_ID, body={'requests': request_list}).execute()
+    result = service.documents().batchUpdate(documentId=DOCUMENT_ID, body={"requests": request_list}).execute()
