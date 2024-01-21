@@ -4,9 +4,10 @@ import json
 import string
 from dataclasses import dataclass
 from datetime import datetime
+from functools import lru_cache
 from typing import List
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 import requests
 
 import logging
@@ -75,14 +76,9 @@ class Entry:
         return custom_strftime("%A, %B {S}, %Y", d)
 
     def _get_text(self) -> str:
+        """Find all paragraphs and lists in the entry and return them as a single string."""
         entry = self._soup.find("div", {"class": "entry"})
-        # TODO: should we attempt to put the images in the right places?
-        text = [x.text for x in entry.find_all("p")]
-        text = [x.replace("\xa0", "") for x in text]  # replace double spaces
-        text = [x.replace("\n", " ").strip() for x in text]  # remove in middle of paragraphs
-        text = "\n\n".join(text).strip()  # combine lists into a single string
-        text = re.sub(r"\n{3,}", "\n\n", text)  # remove extra newlines
-        return text
+        return soup_to_text(entry)
 
     def _get_images(self) -> List["Image"]:
         entry_body = self._soup.find("div", {"class": "entry"})
@@ -142,6 +138,42 @@ class Entry:
 
     def __repr__(self):
         return f"Entry(title={self.title}, date={self.date})"
+
+
+def soup_to_text(soup: BeautifulSoup) -> str:
+    """
+    Extract all 'p', 'ul', and 'ol' tags from a BeautifulSoup object and convert them
+    to text. 'p' tags are converted directly, 'ul' and 'ol' lists have bullets or
+    numbers added to the beginning of each 'li' tag before converting to text.
+    """
+    tags = soup.find_all(["p", "ul", "ol"], recursive=False)
+    return _tags_to_text(tags)
+
+
+def _tags_to_text(tag_list: List[Tag]) -> str:
+    """
+    Convert a BeautifulSoup tag to text. 'p' tags are converted directly, 'ul' and 'ol'
+    lists have bullets or numbers added to the beginning of each individual 'li' tag
+    before converting to text.
+    """
+    text = []
+    for tag in tag_list:
+        if tag.name == "p":
+            text.append(tag.text.strip())
+        elif tag.name == "ul":
+            for li in tag.find_all("li"):
+                text.append(f"- {li.text.strip()}")
+        elif tag.name == "ol":
+            for i, li in enumerate(tag.find_all("li")):
+                text.append(f"{i+1}. {li.text.strip()}")
+        else:
+            raise ValueError(f"tag name {tag.name} not recognized")
+
+    text = [x.replace("\xa0", "") for x in text]  # replace double spaces
+    text = [x.replace("\n", " ").strip() for x in text]  # remove in middle of paragraphs
+    text = "\n\n".join(text).strip()  # combine lists into a single string
+    text = re.sub(r"\n{3,}", "\n\n", text)  # remove extra newlines
+    return text
 
 
 @dataclass
@@ -312,6 +344,7 @@ def get_images_from_soup(entry_body: BeautifulSoup) -> List[Image]:
     return [Image(url, caption) for url, caption in zip(image_urls, captions)]
 
 
+@lru_cache(maxsize=1000)
 def get_soup(url: str, parser: str = "html.parser", **requests_kwargs) -> BeautifulSoup:
     """Make a request to the URL and scrape the HTML."""
     logger.debug(f"scraping {url}")

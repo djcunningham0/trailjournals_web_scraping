@@ -1,6 +1,10 @@
 from bs4 import BeautifulSoup
 
-from trailjournals_scraping import get_images_from_soup, format_trailjournals_url
+from trailjournals_scraping import (
+    get_images_from_soup,
+    format_trailjournals_url,
+    soup_to_text
+)
 
 
 TEST_IMAGE_SOUP_1 = """
@@ -117,3 +121,120 @@ def test_get_images_from_soup():
         None,
         "This image also has a caption.",
     ]
+
+
+def test_soup_to_text_all_paragraphs():
+    html_string = """
+        <p>A paragraph.</p>
+        <p>Another paragraph.</p>
+        <p>Yet another paragraph.</p>
+    """
+    soup = BeautifulSoup(html_string, "html.parser")
+    assert soup_to_text(soup) == (
+        "A paragraph."
+        "\n\nAnother paragraph."
+        "\n\nYet another paragraph."
+    )
+
+
+def test_soup_to_text_with_list():
+    html_string = """
+        <p>A paragraph.</p>
+        <p>Another paragraph.</p>
+        <ul>
+            <li>Item 1</li>
+            <li>Item 2</li>
+        </ul>
+        <p>Yet another paragraph.</p>
+    """
+    soup = BeautifulSoup(html_string, "html.parser")
+    assert soup_to_text(soup) == (
+        "A paragraph."
+        "\n\nAnother paragraph."
+        "\n\n- Item 1"
+        "\n\n- Item 2"
+        "\n\nYet another paragraph."
+    )
+
+
+def test_soup_to_text_with_list_embedded_paragraphs():
+    html_string = """
+        <p>A paragraph.</p>
+        <p>Another paragraph.</p>
+        <ul>
+            <li>
+                <p>Item 1</p>
+            </li>
+            <li>
+                <p>Item 2</p>
+            </li>
+        </ul>
+        <p>Yet another paragraph.</p>
+    """
+    soup = BeautifulSoup(html_string, "html.parser")
+    assert soup_to_text(soup) == (
+        "A paragraph."
+        "\n\nAnother paragraph."
+        "\n\n- Item 1"
+        "\n\n- Item 2"
+        "\n\nYet another paragraph."
+    )
+
+
+def test_soup_to_text_with_numbered_list():
+    html_string = """
+        <p>A paragraph.</p>
+        <p>Another paragraph.</p>
+        <ol>
+            <li>Item 1</li>
+            <li>Item 2</li>
+        </ol>
+        <p>Yet another paragraph.</p>
+    """
+    soup = BeautifulSoup(html_string, "html.parser")
+    assert soup_to_text(soup) == (
+        "A paragraph."
+        "\n\nAnother paragraph."
+        "\n\n1. Item 1"
+        "\n\n2. Item 2"
+        "\n\nYet another paragraph."
+    )
+
+
+def test_soup_to_text_with_numbered_list_embedded_paragraphs():
+    html_string = """
+        <p>A paragraph.</p>
+        <p>Another paragraph.</p>
+        <ol>
+            <li>
+                <p>Item 1</p>
+            </li>
+            <li>
+                <p>Item 2</p>
+            </li>
+        </ol>
+        <p>Yet another paragraph.</p>
+    """
+    soup = BeautifulSoup(html_string, "html.parser")
+    assert soup_to_text(soup) == (
+        "A paragraph."
+        "\n\nAnother paragraph."
+        "\n\n1. Item 1"
+        "\n\n2. Item 2"
+        "\n\nYet another paragraph."
+    )
+
+
+def test_soup_to_text_with_extra_tags():
+    html_string = """
+        <p>A paragraph.</p>
+        <p>Another paragraph.</p>
+        <asdf>Extra tag</asdf>
+        <p>Yet another paragraph.</p>
+    """
+    soup = BeautifulSoup(html_string, "html.parser")
+    assert soup_to_text(soup) == (
+        "A paragraph."
+        "\n\nAnother paragraph."
+        "\n\nYet another paragraph."
+    )
